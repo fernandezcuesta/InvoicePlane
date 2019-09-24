@@ -1,22 +1,53 @@
-FROM php:5.6-apache
+FROM php:7.2-alpine
+ARG url=https://github.com/InvoicePlane/InvoicePlane.git
+ARG i8n_url=https://crowdin.com/backend/download/project/fusioninvoice/es-ES.zip
+ARG i8n_path=application/language/
+ARG port=8080
+ENV deps="libpng-dev libjpeg-turbo-dev libmcrypt-dev libxml2-dev recode-dev freetype-dev"
+ENV buildeps="git npm"
+WORKDIR /var/www/html
 
-# Install and enable PHP extensions
-# https://wiki.invoiceplane.com/en/1.0/getting-started/requirements
-RUN \
-  apt-get update && apt-get install -y \
-    libfreetype6-dev \
-    libjpeg62-turbo-dev \
-    libmcrypt-dev \
-    libpng12-dev \
-    librecode-dev \
-    libxml2-dev \
-  && docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ \
-  && docker-php-ext-install -j$(nproc) gd mcrypt mysqli recode xmlrpc
+COPY --from=composer /usr/bin/composer /usr/bin/composer
 
-# Copy InvoicePlane into public directory
-COPY . /var/www/html
+RUN apk update && \
+    apk add $buildeps $deps lighttpd && \
+    git clone $url /var/www/html && \
+    docker-php-ext-configure gd \
+      --with-jpeg-dir=/usr/lib \
+      --with-png-dir=/usr/lib && \
+    docker-php-ext-install gd mysqli recode xmlrpc && \
+    composer install -d ./
 
-# Enable .htaccess, set permissions, and enable Apache mod_rewrite
-RUN mv /var/www/html/htaccess /var/www/html/.htaccess \
-  && chown -R www-data:www-data /var/www/html \
-  && a2enmod rewrite
+ADD --chown=lighttpd:lighttpd $i8n_url $i8n_path
+COPY --chown=lighttpd:lighttpd . .
+RUN sed 's/\(DB_HOSTNAME=\).*/\1db/ ; \
+         s/\(DB_PORT=\).*/\13306/ ; \
+         s/\(IP_URL=\).*/\1http:\/\/localhost:'${port}'/ ; \
+         s/\(ENABLE_INVOICE_DELETION=\).*/\1true/ ; \
+         s/\(DISABLE_READ_ONLY=\).*/\1true/' \
+         ipconfig.php.example > ipconfig.php && \
+    npm i && npm i -g grunt-cli
+RUN grunt build && \
+    apk del $buildeps && \
+    unzip $i8n_path/*.zip -d $i8n_path && \
+    rm $i8n_path/*.zip
+
+ADD https://raw.githubusercontent.com/eficode/wait-for/master/wait-for .
+# lighttpd configure
+RUN ln -s /usr/local/bin/php-cgi /usr/bin/ && \
+    mkdir /run/lighttpd && \
+    chown -R lighttpd:lighttpd /run/lighttpd /var/www/html . && \
+    chmod +x wait-for && \
+    sed -i $'/"mod_fastcgi.conf"/s/^#// ; \
+             /"mod_rewrite"/s/^#// ; \
+             /server\.document-root/s/+.*// ; \
+             s/usr\/bin/usr\/local\/bin/ ; \
+             s/var\/www\/localhost/var\/www\/html/ ; \
+             s/#\s*server\.port.*/server.port = '${port}'/ ; \
+             /server\.pid-file/s/run/run\/lighttpd/ ; \
+             $aurl.rewrite-if-not-file = ("(.*)" => "/index.php/$0")' \
+      /etc/lighttpd/lighttpd.conf
+
+USER lighttpd
+ENTRYPOINT ["/usr/sbin/lighttpd"]
+CMD ["-D", "-f", "/etc/lighttpd/lighttpd.conf"]

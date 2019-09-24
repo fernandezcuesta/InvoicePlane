@@ -1,0 +1,23 @@
+version: "3.7"
+
+services:
+
+  db:
+    image: mariadb:latest
+    restart: always
+    expose:
+      - "3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=planeinvoice
+      - MYSQL_DATABASE=invoiceplane
+
+  invoiceplane:
+    build: .
+    image: invoiceplane
+    entrypoint: ["./wait-for", "db:3306", "--", "lighttpd"]
+    command: ["-D", "-f", "/etc/lighttpd/lighttpd.conf"]
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - 8080:8080
