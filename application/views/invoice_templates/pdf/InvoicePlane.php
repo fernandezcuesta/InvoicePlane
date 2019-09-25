@@ -123,7 +123,11 @@
         </table>
     </div>
 
-    <h1 class="invoice-title"><?php echo trans('invoice') ?></h1>
+    <h1 class="invoice-title">
+      <?php echo trans('invoice') . ' #' .
+       DateTime::createFromFormat('Y-m-d', $invoice->invoice_date_created)->format("Ym")
+       . str_pad($invoice->invoice_number, 5, "0", STR_PAD_LEFT); ?>
+    </h1>
 
     <table class="item-table">
         <thead>
