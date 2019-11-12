@@ -11,6 +11,7 @@ COPY --from=composer /usr/bin/composer /usr/bin/composer
 
 RUN apk update && \
     apk add $buildeps $deps lighttpd && \
+    echo "Downloading from $url" && \
     git clone $url /var/www/html && \
     docker-php-ext-configure gd \
       --with-jpeg-dir=/usr/lib \
